@@ -24,15 +24,11 @@ my $server = IO::Socket::INET->new(
     Reuse     => 1
 ) or die "Could not create server socket: $!";
 
+$| = 1; # Enable autoflush
+
 print "Server waiting for client connections...\n";
 
 while (my $client = $server->accept()) {
-    my $client_address = $client->peerhost();
-    my $client_port    = $client->peerport();
-
-    print "Connection from $client_address:$client_port\n";
-    $username = '';  # Clear username before handling commands
-
     while (my $command = <$client>) {
         chomp $command;
         print "Received command: $command\n";
@@ -65,7 +61,6 @@ while (my $client = $server->accept()) {
         }
     }
     close $client;
-    print "Connection from $client_address:$client_port closed.\n";
 }
 
 # Handle user creation

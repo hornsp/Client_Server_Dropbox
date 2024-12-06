@@ -17,6 +17,8 @@ my $socket = IO::Socket::INET->new(
     Proto    => 'tcp'
 ) or die "Could not connect to server: $!";
 
+$| = 1; # Enable autoflush
+
 # Handle the command
 if ($command eq 'CREATEUSER') {
     print $socket "CREATE_USER $username $password\n";
@@ -74,10 +76,7 @@ elsif ($command eq 'LOGIN') {
         die "Login failed: $response\n";
     }
 } 
-elsif ($command eq 'UPLOAD') {
-    my $file_path = $ARGV[4];
-    upload_file($socket, $file_path);  # Call upload_file subroutine
-} 
+
 else {
     die "Invalid command. Supported commands: CREATEUSER, LOGIN, UPLOAD.\n";
 }
@@ -89,17 +88,19 @@ sub upload_file {
     my ($socket, $filename) = @_;
     if (-e $filename) {
         print $socket "UPLOAD $filename\n";
-        open my $file, '<:raw', $filename or die "Could not open file for reading: $!\n";
-
-        # Send file data to the server
-        while (my $buffer = <$file>) {
-            print $socket $buffer;
-        }
-        close $file;
-
-        print $socket "EOF\n";  # Signal end of file
         my $response = <$socket>;
-        print "Server response: $response\n";  # Print server response
+        if ($response =~ /READY_TO_RECEIVE/) {
+            open my $file, '<:raw', $filename or die "Cannot open file: $!\n";
+            while (my $buffer = <$file>) {
+                print $socket $buffer;
+            }
+            close $file;
+            print $socket "EOF\n";
+            my $upload_response = <$socket>;
+            print $upload_response;
+        } else {
+            print "Server error: $response\n";
+        }
     } else {
         print "File not found: $filename\n";
     }
@@ -109,20 +110,17 @@ sub upload_file {
 sub download_file {
     my ($socket, $filename) = @_;
     print $socket "DOWNLOAD $filename\n";
-
     my $response = <$socket>;
-    chomp($response);
-    if ($response eq 'DOWNLOAD SUCCESS') {
-        open my $file, '>:raw', $filename or die "Could not open file for writing: $!\n";
-        
+    if ($response =~ /DOWNLOAD SUCCESS/) {
+        open my $file, '>:raw', $filename or die "Cannot open file: $!\n";
         while (my $buffer = <$socket>) {
             last if $buffer eq "EOF\n";
-            print $file $buffer;  # Write data to file
+            print $file $buffer;
         }
         close $file;
         print "Downloaded file: $filename\n";
     } else {
-        print "Download failed: $response\n";  # Print server error
+        print "Download failed: $response\n";
     }
 }
 
