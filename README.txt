@@ -30,3 +30,8 @@ Concurrency:
 Error Handling:
 * Basic error messages are implemented. Further improvements could include more informative feedback for a better user 
   experience.
+
+Bugs:
+* When downloading a file for a second time, download fails with the following message:
+"Download failed: UPLOAD SUCCESS"
+* Attempting to download a after that message works as designed.
