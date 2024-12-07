@@ -7,6 +7,24 @@ Server:
 * The server is running on stu.cs.jmu.edu.
 * The server is configured to run on stu as specified by the project description.
 
+Sync Helper:
+* The sync_helper monitors and reports file changes (upload, download, delete) in real-time for clients sharing the same 
+  user account.
+
+How to Use:
+* Ensure the server is running and users are authenticated.
+* Start the sync helper by running:
+    * python sync_helper.py
+* Requires Python 3. Ensure the necessary Python modules (e.g., watchdog) are installed.
+
+Functionality:
+The sync helper detects changes made to files in the shared user directory across multiple clients and outputs a 
+notification in the terminal for each change:
+* File added: Triggered when a file is uploaded.
+* File deleted: Triggered when a file is deleted.
+* File downloaded: Triggered when a file is downloaded.
+By running sync_helper.py alongside the client and server, users can observe all file activity in real-time, enabling better monitoring and collaboration across multiple devices.
+
 Client:
 * Compile: Not required as Perl is interpreted.
 * Create a New User: perl client.pl stu.cs.jmu.edu <username> <password> CREATEUSER
@@ -32,6 +50,3 @@ Error Handling:
   experience.
 
 Bugs:
-* When downloading a file for a second time, download fails with the following message:
-"Download failed: UPLOAD SUCCESS"
-* Attempting to download a after that message works as designed.

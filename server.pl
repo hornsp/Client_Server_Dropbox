@@ -2,15 +2,14 @@ use strict;
 use warnings;
 use IO::Socket::INET;
 use Digest::SHA qw(sha256_hex);
-use JSON;
 use File::Basename qw(basename);
+use IO::Socket::SSL;
+use Config;
 use threads;
 
 my $ownership_file = 'file_owners.txt';
 my $users_file = 'users.txt';
 my %file_owners;
-my %user_events;
-my %monitoring_clients;
 my $username;
 
 # Load file ownership on server startup
@@ -28,19 +27,27 @@ $| = 1; # Enable autoflush
 
 print "Server waiting for client connections...\n";
 
+# Main server loop to accept connections
 while (my $client = $server->accept()) {
+    threads->create(\&handle_client, $client);
+}
+
+# Handle individual client
+sub handle_client {
+    my ($client) = @_;
+    
     while (my $command = <$client>) {
         chomp $command;
         print "Received command: $command\n";
 
         if ($command =~ /^CREATE_USER (\S+) (\S+)$/) {
             my ($username, $password) = ($1, $2);
-            create_user($username, $password, $client); # Pass $client
+            create_user($username, $password, $client);
         }
         elsif ($command =~ /^LOGIN (\S+) (\S+)$/) {
             my ($username_input, $password) = ($1, $2);
             if (authenticate_user($username_input, $password)) {
-                $username = $username_input;  # Set global username after successful login
+                $username = $username_input;
                 print "Login successful for $username\n";
                 print $client "LOGIN SUCCESS\n";
             } else {
@@ -60,6 +67,7 @@ while (my $client = $server->accept()) {
             handle_delete($client, $username, $filename);
         }
     }
+    
     close $client;
 }
 
@@ -75,7 +83,7 @@ sub create_user {
     print $client_socket "User '$username' created successfully.\n";
 }
 
-# Helper funciton to authenticate user
+# Helper function to authenticate user
 sub authenticate_user {
     my ($username, $password) = @_;
     open my $fh, '<', $users_file or die "Could not open users file: $!";
@@ -93,34 +101,38 @@ sub authenticate_user {
 # Handle file upload
 sub handle_upload {
     my ($client_socket, $username, $filepath) = @_;
-        # Extract the basename to use in the uploads folder
-        my $storage_dir = 'uploads';
-        mkdir $storage_dir unless -d $storage_dir;  # Ensure uploads directory exists
+    
+    my $storage_dir = 'uploads';
+    mkdir $storage_dir unless -d $storage_dir;  # Ensure uploads directory exists
 
-        my $file_name = basename($filepath);
-        my $target_path = "$storage_dir/$file_name";
+    my $file_name = basename($filepath);
+    my $target_path = "$storage_dir/$file_name";
 
-        print $client_socket "READY_TO_RECEIVE\n";  # Notify the client
+    print $client_socket "READY_TO_RECEIVE\n";  # Notify the client
 
-        open my $file, '>:raw', $target_path or do {
-            print $client_socket "ERROR: Unable to open file $target_path for writing.\n";
-            next;  # Skip further processing if file cannot be opened
-        };
+    open my $file, '>:raw', $target_path or do {
+        print $client_socket "ERROR: Unable to open file $target_path for writing.\n";
+        return;  # Skip further processing if file cannot be opened
+    };
 
-        # Receive and write file data
-        while (my $buffer = <$client_socket>) {
-            last if $buffer =~ /EOF/;  # Stop on end-of-file marker
-            print $file $buffer;
-        }
-        close $file;
+    # Receive and write file data
+    while (my $buffer = <$client_socket>) {
+        last if $buffer =~ /EOF/;  # Stop on end-of-file marker
+        print $file $buffer;
+    }
+    close $file;
 
-        # Log ownership of the uploaded file
-        $file_owners{$file_name} = $username;
-        save_file_ownership();
+    # Lock the ownership file to prevent race conditions
+    flock_file($ownership_file);
 
-        notify_sync_helper('UPLOAD', $file_name, $username);
+    # Log ownership of the uploaded file
+    $file_owners{$file_name} = $username;
+    save_file_ownership();
 
-        print $client_socket "UPLOAD SUCCESS\n";
+    # Unlock after operation
+    unlock_file($ownership_file);
+
+    print $client_socket "UPLOAD SUCCESS\n";
 }
 
 # Handle file download
@@ -144,7 +156,6 @@ sub handle_download {
         print $client_socket "EOF\n";
 
         print "File '$filename' sent to client.\n";
-        notify_sync_helper('DOWNLOAD', $filename, $username);
     } elsif (!-e $full_path) {
         print $client_socket "ERROR: File not found\n";
     } else {
@@ -169,7 +180,6 @@ sub handle_delete {
         save_file_ownership();
 
         print $client_socket "DELETE SUCCESS: File '$filename' has been deleted.\n";
-        notify_sync_helper('DELETE', $filename, $username);
     } else {
         print $client_socket "ERROR: File not found or permission denied.\n";
     }
@@ -177,6 +187,9 @@ sub handle_delete {
 
 # Load file ownership data
 sub load_file_ownership {
+    # Lock the ownership file to prevent race conditions
+    flock_file($ownership_file);
+
     %file_owners = (); # Clear existing data to avoid stale entries
     if (-e $ownership_file) {
         open my $fh, '<', $ownership_file or die "Could not open ownership file: $!";
@@ -187,41 +200,43 @@ sub load_file_ownership {
         }
         close $fh;
     }
-    # Debugging: Check the loaded file_owners
-    foreach my $file (keys %file_owners) {
-        print "DEBUG: File '$file' is owned by '$file_owners{$file}'\n";
-    }
+
+    unlock_file($ownership_file);
 }
 
+# Save file ownership data
 sub save_file_ownership {
+    # Lock the ownership file to prevent race conditions
+    flock_file($ownership_file);
+
     open my $fh, '>', $ownership_file or die "Could not open ownership file\n";
     foreach my $filename (keys %file_owners) {
         print $fh "$filename:$file_owners{$filename}\n";
     }
     close $fh;
+
+    unlock_file($ownership_file);
 }
 
-# Notify sync helper about a change
-sub notify_sync_helper {
-    my ($action, $filename, $username) = @_;
-    # Format message: Action|Filename|Username
-    my $message = "$action|$filename|$username\n";
+# Lock a file using flock
+sub flock_file {
+    my ($filename) = @_;
+    open my $fh, '+<', $filename or die "Could not open file $filename for locking: $!";
+    flock($fh, 2) or die "Could not lock file $filename: $!";  # Lock the file for reading and writing
+    return $fh;
+}
 
-    # Replace 'sync_helper_address' and 'sync_helper_port' with appropriate values
-    my $sync_helper_address = '127.0.0.1'; # Assuming sync helper is local
-    my $sync_helper_port = 9000;           # Example port number
-
-    use IO::Socket::INET;
-    my $socket = IO::Socket::INET->new(
-        PeerAddr => $sync_helper_address,
-        PeerPort => $sync_helper_port,
-        Proto    => 'tcp',
-    );
-    if ($socket) {
-        print $socket $message;
-        close $socket;
-        print "DEBUG: Sent notification to sync helper: $message";
-    } else {
-        print "ERROR: Could not connect to sync helper for notification\n";
+# Unlock a file
+sub unlock_file {
+    my ($filename) = @_;
+    
+    # Skip unlocking on Windows
+    if ($^O eq 'MSWin32') {
+        return;  # No unlock operation needed for Windows
     }
+    
+    open my $fh, '+<', $filename or die "Could not open file $filename for unlocking: $!";
+    flock($fh, 8) or die "Could not unlock file $filename: $!";  # Unlock the file
+    close $fh;
 }
+
