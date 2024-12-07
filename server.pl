@@ -11,6 +11,8 @@ my $ownership_file = 'file_owners.txt';
 my $users_file = 'users.txt';
 my %file_owners;
 my $username;
+my $SYNC_HELPER_HOST = '127.0.0.1';  # Sync helper is on the same machine
+my $SYNC_HELPER_PORT = 9000;         # Sync helper listens on this port
 
 # Load file ownership on server startup
 load_file_ownership();
@@ -133,6 +135,7 @@ sub handle_upload {
     unlock_file($ownership_file);
 
     print $client_socket "UPLOAD SUCCESS\n";
+    notify_sync_helper("UPLOAD", $file_name);
 }
 
 # Handle file download
@@ -156,6 +159,7 @@ sub handle_download {
         print $client_socket "EOF\n";
 
         print "File '$filename' sent to client.\n";
+        notify_sync_helper("DOWNLOAD", $filename);
     } elsif (!-e $full_path) {
         print $client_socket "ERROR: File not found\n";
     } else {
@@ -180,6 +184,7 @@ sub handle_delete {
         save_file_ownership();
 
         print $client_socket "DELETE SUCCESS: File '$filename' has been deleted.\n";
+        notify_sync_helper("DELETE", $filename);
     } else {
         print $client_socket "ERROR: File not found or permission denied.\n";
     }
@@ -240,3 +245,21 @@ sub unlock_file {
     close $fh;
 }
 
+sub notify_sync_helper {
+    my ($action, $filename, $username) = @_;
+
+    # Create a socket connection to sync_helper
+    my $socket = IO::Socket::INET->new(
+        PeerHost => $SYNC_HELPER_HOST,
+        PeerPort => $SYNC_HELPER_PORT,
+        Proto    => 'tcp',
+    ) or die "Could not connect to sync_helper: $!\n";
+
+    # Create the message in the format: Action|Filename|Username
+    my $message = "$action|$filename|$username";
+
+    # Send the message to the sync helper
+    $socket->send($message) or die "Send failed: $!\n";
+    $socket->close();
+    print "Sent notification to sync_helper: $message\n";
+}
