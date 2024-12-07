@@ -3,6 +3,12 @@
 use strict;
 use warnings;
 use IO::Socket::INET;
+use FindBin;  # Module to find script directory
+use File::Spec;  # Module to handle paths
+
+# Configuration
+my $script_dir = $FindBin::Bin;  # Get the directory of the current script
+my $uploads_dir = File::Spec->catdir($script_dir, "uploads");  # Construct the path to the uploads folder
 
 # Check for valid arguments
 my ($host, $username, $password, $command) = @ARGV;
@@ -86,11 +92,21 @@ close ($socket);
 # Subroutine to handle file uploads
 sub upload_file {
     my ($socket, $filename) = @_;
-    if (-e $filename) {
-        print $socket "UPLOAD $filename\n";
+    
+    # Check if the file path is absolute or relative
+    my $absolute_path = $filename;
+    
+    # If the path is relative, make it absolute
+    if ($filename !~ /^(?:[a-zA-Z]:\\|\/)/) {
+        $absolute_path = getcwd() . '\\' . $filename;
+    }
+
+    # Check if the file exists at the resolved path
+    if (-e $absolute_path) {
+        print $socket "UPLOAD $filename\n";  # Send the relative filename to the server
         my $response = <$socket>;
         if ($response =~ /READY_TO_RECEIVE/) {
-            open my $file, '<:raw', $filename or die "Cannot open file: $!\n";
+            open my $file, '<:raw', $absolute_path or die "Cannot open file: $!\n";
             while (my $buffer = <$file>) {
                 print $socket $buffer;
             }
@@ -102,7 +118,7 @@ sub upload_file {
             print "Server error: $response\n";
         }
     } else {
-        print "File not found: $filename\n";
+        print "File not found: $absolute_path\n";
     }
 }
 
@@ -128,7 +144,6 @@ sub download_file {
 sub delete_file {
     my ($socket, $filename) = @_;
     print $socket "DELETE $filename\n";
-
     my $response = <$socket>;
     print "Server response: $response";
 }

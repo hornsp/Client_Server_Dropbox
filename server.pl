@@ -118,8 +118,9 @@ sub handle_upload {
         $file_owners{$file_name} = $username;
         save_file_ownership();
 
+        notify_sync_helper('UPLOAD', $file_name, $username);
+
         print $client_socket "UPLOAD SUCCESS\n";
-        broadcast_event("$username uploaded '$file_name'");
 }
 
 # Handle file download
@@ -143,6 +144,7 @@ sub handle_download {
         print $client_socket "EOF\n";
 
         print "File '$filename' sent to client.\n";
+        notify_sync_helper('DOWNLOAD', $filename, $username);
     } elsif (!-e $full_path) {
         print $client_socket "ERROR: File not found\n";
     } else {
@@ -155,6 +157,8 @@ sub handle_delete {
     my ($client_socket, $username, $filename) = @_;
     my $file_path = "uploads/" . basename($filename);
 
+    load_file_ownership();
+
     if (-e $file_path && $file_owners{$filename} eq $username) {
         unlink $file_path or do {
             print $client_socket "ERROR: Could not delete file '$filename'.\n";
@@ -164,8 +168,8 @@ sub handle_delete {
         delete $file_owners{$filename};
         save_file_ownership();
 
-        broadcast_event("$username deleted '$filename'");
         print $client_socket "DELETE SUCCESS: File '$filename' has been deleted.\n";
+        notify_sync_helper('DELETE', $filename, $username);
     } else {
         print $client_socket "ERROR: File not found or permission denied.\n";
     }
@@ -173,6 +177,7 @@ sub handle_delete {
 
 # Load file ownership data
 sub load_file_ownership {
+    %file_owners = (); # Clear existing data to avoid stale entries
     if (-e $ownership_file) {
         open my $fh, '<', $ownership_file or die "Could not open ownership file: $!";
         while (<$fh>) {
@@ -181,6 +186,10 @@ sub load_file_ownership {
             $file_owners{$filename} = $owner;
         }
         close $fh;
+    }
+    # Debugging: Check the loaded file_owners
+    foreach my $file (keys %file_owners) {
+        print "DEBUG: File '$file' is owned by '$file_owners{$file}'\n";
     }
 }
 
@@ -192,11 +201,27 @@ sub save_file_ownership {
     close $fh;
 }
 
-sub broadcast_event {
-    my ($message) = @_;
-    foreach my $user (keys %monitoring_clients) {
-        foreach my $socket (@{$monitoring_clients{$user}}) {
-            print $socket "NOTIFICATION: $message\n";
-        }
+# Notify sync helper about a change
+sub notify_sync_helper {
+    my ($action, $filename, $username) = @_;
+    # Format message: Action|Filename|Username
+    my $message = "$action|$filename|$username\n";
+
+    # Replace 'sync_helper_address' and 'sync_helper_port' with appropriate values
+    my $sync_helper_address = '127.0.0.1'; # Assuming sync helper is local
+    my $sync_helper_port = 9000;           # Example port number
+
+    use IO::Socket::INET;
+    my $socket = IO::Socket::INET->new(
+        PeerAddr => $sync_helper_address,
+        PeerPort => $sync_helper_port,
+        Proto    => 'tcp',
+    );
+    if ($socket) {
+        print $socket $message;
+        close $socket;
+        print "DEBUG: Sent notification to sync helper: $message";
+    } else {
+        print "ERROR: Could not connect to sync helper for notification\n";
     }
 }
