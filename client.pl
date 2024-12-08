@@ -5,10 +5,13 @@ use warnings;
 use IO::Socket::INET;
 use FindBin;  # Module to find script directory
 use File::Spec;  # Module to handle paths
+use Crypt::CBC;
+# use Crypt::Random;
 
 # Configuration
 my $script_dir = $FindBin::Bin;  # Get the directory of the current script
 my $uploads_dir = File::Spec->catdir($script_dir, "uploads");  # Construct the path to the uploads folder
+my $encryption_key = 'sharedsecretkey';
 
 # Check for valid arguments
 my ($host, $username, $password, $command) = @ARGV;
@@ -71,6 +74,13 @@ elsif ($command eq 'LOGIN') {
                 next;
             }
 
+            # Handle the SHARE command
+            elsif ($user_command =~ /^SHARE\s+(\S+)\s+(\S+)\s+(.+)/i) {
+                my ($command, $owner, $recipient, $filename) = split(' ', $user_command, 4);
+                share_file($socket, $owner, $recipient, $filename);
+                next;
+            }
+
             # Send other commands to the server
             print $socket "$user_command\n";
 
@@ -92,51 +102,43 @@ close ($socket);
 # Subroutine to handle file uploads
 sub upload_file {
     my ($socket, $filename) = @_;
-    
-    # Check if the file path is absolute or relative
-    my $absolute_path = $filename;
-    
-    # If the path is relative, make it absolute
-    if ($filename !~ /^(?:[a-zA-Z]:\\|\/)/) {
-        $absolute_path = getcwd() . '\\' . $filename;
+
+    print $socket "UPLOAD $filename\n";  # Send the relative filename to the server
+    my $response = <$socket>;
+    if ($response =~ /READY_TO_RECEIVE/) {
+        open my $file, '<:raw', $filename or die "Cannot open file: $!\n";
+        while (my $buffer = <$file>) {
+            print $socket $buffer;
+        }
+        close $file;
+        print $socket "EOF\n";
+        my $upload_response = <$socket>;
+        print $upload_response;
+    } else {
+        print "Server error: $response\n";
     }
 
-    # Check if the file exists at the resolved path
-    if (-e $absolute_path) {
-        print $socket "UPLOAD $filename\n";  # Send the relative filename to the server
-        my $response = <$socket>;
-        if ($response =~ /READY_TO_RECEIVE/) {
-            open my $file, '<:raw', $absolute_path or die "Cannot open file: $!\n";
-            while (my $buffer = <$file>) {
-                print $socket $buffer;
-            }
-            close $file;
-            print $socket "EOF\n";
-            my $upload_response = <$socket>;
-            print $upload_response;
-        } else {
-            print "Server error: $response\n";
-        }
-    } else {
-        print "File not found: $absolute_path\n";
-    }
 }
 
 # Subroutine for downloading a file
 sub download_file {
     my ($socket, $filename) = @_;
+
     print $socket "DOWNLOAD $filename\n";
     my $response = <$socket>;
+
     if ($response =~ /DOWNLOAD SUCCESS/) {
-        open my $file, '>:raw', $filename or die "Cannot open file: $!\n";
+        my $local_file = File::Spec->catfile($uploads_dir, $filename);
+        open my $file, '>:raw', $local_file or die "Cannot create file: $!\n";
+
         while (my $buffer = <$socket>) {
-            last if $buffer eq "EOF\n";
+            last if $buffer =~ /EOF/;
             print $file $buffer;
         }
         close $file;
-        print "Downloaded file: $filename\n";
+
     } else {
-        print "Download failed: $response\n";
+        print "Server error: $response\n";
     }
 }
 
@@ -147,3 +149,16 @@ sub delete_file {
     my $response = <$socket>;
     print "Server response: $response";
 }
+
+# Share file command
+sub share_file {
+    my ($socket, $owner, $recipient, $filename) = @_;
+    
+    # Send the SHARE command to the server
+    print $socket "SHARE $owner $recipient $filename\n";
+    
+    # Read and print the server's response
+    my $response = <$socket>;
+    print "Server Response: $response\n";
+}
+
