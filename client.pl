@@ -71,6 +71,13 @@ elsif ($command eq 'LOGIN') {
                 next;
             }
 
+            # Handle the SHARE command
+            elsif ($user_command =~ /^SHARE\s+(\S+)\s+(\S+)\s+(.+)/i) {
+                my ($command, $owner, $recipient, $filename) = split(' ', $user_command, 4);
+                share_file($socket, $owner, $recipient, $filename);
+                next;
+            }
+
             # Send other commands to the server
             print $socket "$user_command\n";
 
