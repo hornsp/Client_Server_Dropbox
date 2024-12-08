@@ -135,7 +135,7 @@ sub handle_upload {
     unlock_file($ownership_file);
 
     print $client_socket "UPLOAD SUCCESS\n";
-    notify_sync_helper("UPLOAD", $file_name);
+    notify_sync_helper("UPLOAD", $file_name, $username);
 }
 
 # Handle file download
@@ -159,7 +159,7 @@ sub handle_download {
         print $client_socket "EOF\n";
 
         print "File '$filename' sent to client.\n";
-        notify_sync_helper("DOWNLOAD", $filename);
+        notify_sync_helper("DOWNLOAD", $filename, $username);
     } elsif (!-e $full_path) {
         print $client_socket "ERROR: File not found\n";
     } else {
@@ -184,7 +184,7 @@ sub handle_delete {
         save_file_ownership();
 
         print $client_socket "DELETE SUCCESS: File '$filename' has been deleted.\n";
-        notify_sync_helper("DELETE", $filename);
+        notify_sync_helper("DELETE", $filename, $username);
     } else {
         print $client_socket "ERROR: File not found or permission denied.\n";
     }
