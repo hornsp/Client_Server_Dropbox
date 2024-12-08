@@ -147,3 +147,15 @@ sub delete_file {
     my $response = <$socket>;
     print "Server response: $response";
 }
+
+# Share file command
+sub share_file {
+    my ($socket, $owner, $recipient, $filename) = @_;
+    
+    # Send the SHARE command to the server
+    print $socket "SHARE $owner $recipient $filename\n";
+    
+    # Read and print the server's response
+    my $response = <$socket>;
+    print "Server Response: $response\n";
+}
