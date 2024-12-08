@@ -1,1 +1,2 @@
 test.jpg:sam
+test.jpg:sam,riley

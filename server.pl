@@ -6,13 +6,16 @@ use File::Basename qw(basename);
 use IO::Socket::SSL;
 use Config;
 use threads;
+use Crypt::CBC;
+# use Crypt::Random;
 
 my $ownership_file = 'file_owners.txt';
 my $users_file = 'users.txt';
 my %file_owners;
 my $username;
-my $SYNC_HELPER_HOST = '127.0.0.1';  # Sync helper is on the same machine
+my $SYNC_HELPER_HOST = 'localhost';  # Sync helper is on the same machine
 my $SYNC_HELPER_PORT = 9000;         # Sync helper listens on this port
+my $encryption_key = 'sharedsecretkey';
 
 # Load file ownership on server startup
 load_file_ownership();
@@ -67,6 +70,10 @@ sub handle_client {
         elsif ($command =~ /^DELETE\s+(.+)$/) {
             my $filename = $1;
             handle_delete($client, $username, $filename);
+        }
+        elsif ($command =~ /^SHARE\s+(\S+)\s+(\S+)\s+(.+)$/) {
+            my ($owner_username, $shared_with_username, $filename) = ($1, $2, $3);
+            handle_share($client, $owner_username, $shared_with_username, $filename);
         }
     }
     
@@ -144,9 +151,9 @@ sub handle_download {
     my $filename = basename($filepath);
     my $full_path = "uploads/$filename";
 
-    load_file_ownership();
+    my %file_owners = load_file_ownership();  # Load ownership data
 
-    if (-e $full_path && $file_owners{$filename} && $file_owners{$filename} eq $username) {
+    if (exists $file_owners{$filename} && grep { $_ eq $username } @{$file_owners{$filename}}) {
         print $client_socket "DOWNLOAD SUCCESS\n";
         open my $file, '<:raw', $full_path or do {
             print $client_socket "ERROR: Could not open file for reading\n";
@@ -166,6 +173,7 @@ sub handle_download {
         print $client_socket "ERROR: Permission denied\n";
     }
 }
+
 
 # Handle file deletion
 sub handle_delete {
@@ -190,37 +198,27 @@ sub handle_delete {
     }
 }
 
-# Load file ownership data
-sub load_file_ownership {
-    # Lock the ownership file to prevent race conditions
-    flock_file($ownership_file);
-
-    %file_owners = (); # Clear existing data to avoid stale entries
-    if (-e $ownership_file) {
-        open my $fh, '<', $ownership_file or die "Could not open ownership file: $!";
-        while (<$fh>) {
-            chomp;
-            my ($filename, $owner) = split /:/;
-            $file_owners{$filename} = $owner;
-        }
-        close $fh;
-    }
-
-    unlock_file($ownership_file);
+# Save ownership data
+sub save_file_ownership {
+    my ($file, $owners_ref) = @_;  # Take an array reference for owners
+    open my $fh, '>>', $ownership_file or die "Cannot open file: $!";
+    print $fh "$file:" . join(',', @$owners_ref) . "\n";  # Save owners as a comma-separated list
+    close $fh;
 }
 
-# Save file ownership data
-sub save_file_ownership {
-    # Lock the ownership file to prevent race conditions
-    flock_file($ownership_file);
-
-    open my $fh, '>', $ownership_file or die "Could not open ownership file\n";
-    foreach my $filename (keys %file_owners) {
-        print $fh "$filename:$file_owners{$filename}\n";
+# Load ownership data from the file
+sub load_file_ownership {
+    my %file_owners;  # Initialize hash here
+    open my $fh, '<', $ownership_file or die "Cannot open file: $!";
+    while (my $line = <$fh>) {
+        chomp $line;
+        my ($file, $owners_string) = split(':', $line);
+        my @owners = split(',', $owners_string);  # Split owners back into an array
+        print "Loaded $file with owners: " . join(', ', @owners) . "\n";  # Debugging output
+        $file_owners{$file} = \@owners;  # Store owners as an array reference
     }
     close $fh;
-
-    unlock_file($ownership_file);
+    return %file_owners;  # Return the hash
 }
 
 # Lock a file using flock
@@ -263,3 +261,36 @@ sub notify_sync_helper {
     $socket->close();
     print "Sent notification to sync_helper: $message\n";
 }
+
+# Handle file sharing
+sub handle_share {
+    my ($client, $user, $target_user, $file) = @_;
+    
+    # Load file ownership
+    my %file_owners = load_file_ownership();
+
+    # Check if the user is the owner of the file
+    if (exists $file_owners{$file}) {
+        my @owners = @{$file_owners{$file}};
+        if (grep { $_ eq $user } @owners) {
+            # The user is the owner, proceed with sharing
+            print "User $user is the owner. Sharing file '$file' with $target_user.\n";
+            
+            # Add the target user to the ownership array
+            push @owners, $target_user;
+            $file_owners{$file} = \@owners;  # Update ownership list
+            
+            # Save the updated ownership data back to the file
+            save_file_ownership($file, \@owners);
+            print $client "File shared successfully.\n";
+        } else {
+            print $client "ERROR: You do not own the file '$file' or it does not exist.\n";
+        }
+    } else {
+        print $client "ERROR: File '$file' does not exist.\n";
+    }
+}
+
+
+
+

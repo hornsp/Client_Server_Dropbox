@@ -32,7 +32,7 @@ Client:
     * Upload a file: Enter a command: UPLOAD path\to\file
     * Download a File: Enter a command: DOWNLOAD <filename>
     * Delete a File: Enter a command: DELETE <filename>
-    * Monitoring for Changes: I a user has multiple clients, each client will monitor for changes to the users' files
+    * Monitoring for Changes: The sync_helper script will notify the user of any uploads/downloads/deletes made by each client
 
 Authentication:
 * Process: The client authenticates to the server using a username and password. Authentication is done over a secure 
