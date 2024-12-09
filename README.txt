@@ -29,6 +29,7 @@ By running sync_helper.py alongside the client and server, users can observe all
 Client:
 * Compile: Not required as Perl is interpreted.
 * Create a New User: perl client.pl stu.cs.jmu.edu <username> <password> CREATEUSER
+* Login: perl client.pl stu.cs.jmu.edu <username> <password> LOGIN
 * After logging in the user can then:
     * Upload a file: Enter a command: UPLOAD path\to\file
     * Download a File: Enter a command: DOWNLOAD <filename>
