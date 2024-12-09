@@ -12,8 +12,8 @@ my $ownership_file = 'file_owners.txt';
 my $users_file = 'users.txt';
 my %file_owners;
 my $username;
-my $SYNC_HELPER_HOST = '127.0.0.1';  # Sync helper is on the same machine
-my $SYNC_HELPER_PORT = 9000;         # Sync helper listens on this port
+my $SYNC_HELPER_HOST = 'stu.cs.jmu.edu';  # Sync helper is on the same machine
+my $SYNC_HELPER_PORT = 5001;         # Sync helper listens on this port
 
 # Load file ownership on server startup
 load_file_ownership();

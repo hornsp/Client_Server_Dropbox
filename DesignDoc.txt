@@ -1,106 +1,120 @@
-The primary goal is to ensure that any file changes (addition, deletion, or modification) made on one device 
-propagate to the server and then from the server to other devices logged in with the same user account. The 
-server operates on a specified host and port, with secure TCP communication using SSL/TLS encryption.
+The primary goal is to ensure that any file changes (addition, deletion, or download) made on one device propagate 
+to the server and then from the server to other devices logged in with the same user account. The server operates on a 
+specified host and port, with secure TCP communication using SSL/TLS encryption.
 
-Key features added in Project 3:
-* Continuous synchronization across multiple clients.
-* Offline handling and synchronization once the client reconnects.
-* Conflict resolution strategy when changes are detected on multiple devices.
+Key features added in Project 4:
+
+Continuous synchronization across multiple clients.
+Conflict resolution strategy when changes are detected on multiple devices.
+Sync Helper: A Python script (sync_helper.py) runs alongside the server and client, notifying users of uploaded, downloaded, 
+or deleted files.
 
 System Architecture
-
 Server
-* Role: The server receives and stores files from clients, propagates file changes to all clients, and maintains 
-    file metadata for ownership and synchronization purposes.
-* Technologies: Uses Perl's IO::Socket::INET for TCP communication and IO::Socket::SSL for SSL/TLS encryption. Additionally, File::ChangeNotify monitors server file changes.
+Role: The server receives and stores files from clients, propagates file changes to all clients, and maintains file metadata
+for ownership and synchronization purposes.
+Technologies: Uses Perl's IO::Socket::INET for TCP communication and IO::Socket::SSL for SSL/TLS encryption. The sync_helper.
+py script is run alongside the server to handle notifications for file operations.
 
 Key Functions:
-* File Storage: Stores files in a local directory structure.
-* Client Notification: Notifies clients of updates when files change.
-* Synchronization Tracking: Maintains a record of file metadata, such as modification timestamps and file owners, 
-    to manage sync operations.
+File Storage: Stores files in a local directory structure.
+Client Notification: Notifies clients of updates when files change through a Python-based sync_helper.py.
+Synchronization Tracking: Maintains a record of file metadata, such as modification timestamps and file owners, to manage 
+sync operations.
 
 Client
-* Role: The client monitors its local Dropbox®-like folder for changes, communicates with the server to upload 
-    changes, and checks for updates from the server.
-* Technologies: Uses Perl's File::ChangeNotify for local change detection and IO::Socket::SSL for secure 
-    communication with the server.
+Role: The client monitors its local Dropbox®-like folder for changes, communicates with the server to upload changes, and 
+checks for updates from the server.
+Technologies: Uses Perl's IO::Socket::SSL for secure communication with the server, and the sync_helper.py Python script is 
+used to notify users of file changes.
 
 Key Functions:
-* Change Detection: Monitors the local directory for file additions, deletions, and modifications.
-* Synchronization with Server: Sends file metadata (file name, modification time, hash) to the server, downloads 
-    updates, and manages offline changes.
-* Conflict Resolution: Implements a “last-write-wins” strategy for conflicting changes, with an option to 
-    preserve older versions by renaming.
+Change Detection: Monitors the local directory for file additions, deletions, and modifications.
+Synchronization with Server: Sends file metadata (file name, modification time, hash) to the server, downloads updates, and 
+manages offline changes.
+Conflict Resolution: Implements a “last-write-wins” strategy for conflicting changes, with an option to preserve older 
+versions by renaming them.
 
+Sync Helper (sync_helper.py)
+The sync_helper.py script runs alongside the server and client, listening for notifications about file operations and 
+informing the user when a file has been uploaded, downloaded, or deleted.
+
+Key Functions:
+start_sync_helper: Starts a TCP server to listen for incoming messages from the client and server.
+handle_notification: Handles different file operation notifications (UPLOAD, DOWNLOAD, DELETE, SHARE) and prints the 
+action to the console.
+get_folder_snapshot: Captures a snapshot of the monitored folder’s file statuses (timestamps) to track file changes.
+send_to_server: Sends file operation commands (UPLOAD, DOWNLOAD, DELETE) to the server using the client’s credentials.
 Communication Protocol
 Communication between the client and server is text-based, operating over SSL/TLS-encrypted TCP. Key commands include:
 
-* UPLOAD filename: Uploads the specified file to the server.
-* DOWNLOAD filename: Downloads the specified file from the server.
-* DELETE filename: Deletes the specified file from the server.
-* MONITOR: Checks for any new file events on the server for synchronization purposes.
+UPLOAD filename: Uploads the specified file to the server.
+DOWNLOAD filename: Downloads the specified file from the server.
+DELETE filename: Deletes the specified file from the server.
+MONITOR: Checks for any new file events on the server for synchronization purposes.
+SHARE: Share a file to another user so that they can then download and delete it. 
 
 Design
 Server Design
 Modules Used:
 
-* IO::Socket::INET: For TCP socket communication.
-* File::ChangeNotify: Monitors changes in the server's storage directory.
-* File::Basename: Handles file paths for compatibility with both client and server.
-
+IO::Socket::INET: For TCP socket communication.
+File::Basename: Handles file paths for compatibility with both client and server.
+sync_helper.py: A Python script to handle notifications about file operations.
 Main Functions:
 
 handle_client: Manages client requests, including authentication and file operations.
 broadcast_event: Queues event notifications for each connected client to facilitate synchronization.
-Synchronization Propagation: When a file change occurs, it updates connected clients by triggering download, upload, or delete commands.
+Synchronization Propagation: When a file change occurs, it updates connected clients by triggering download, upload, or 
+delete notifications.
 
 Client Design
 Modules Used:
 
-* IO::Socket::SSL: Handles encrypted TCP socket communication.
-* File::ChangeNotify: Detects local file changes for immediate synchronization with the server.
+IO::Socket::SSL: Handles encrypted TCP socket communication.
+
+sync_helper.py: Informs users of file operations such as uploads, downloads, or deletions.
 
 Main Functions:
 
-Local Change Detection: Uses File::ChangeNotify to monitor the client's local Dropbox®-like folder, detecting 
-additions, deletions, and modifications.
-SYNC Operation: The client periodically queries the server using CHECK_EVENTS to download new or updated files. 
-Each file's timestamp is checked to ensure only necessary updates are downloaded.
-Conflict Handling: The client employs a “last-write-wins” conflict resolution approach, and optionally retains 
-older versions of files by renaming them when conflicts arise.
+Local Change Detection: The client uses sync_helper.py to monitor the local Dropbox-like folder, detecting additions, 
+deletions, and modifications.
+
+Conflict Handling: The client employs a “last-write-wins” conflict resolution approach and optionally retains older versions 
+of files by renaming them when conflicts arise.
 
 Synchronization Process
-
 File Change Detection
-* Client-Side Monitoring: Each client instance uses File::ChangeNotify to track changes in the Dropbox-like folder. 
-    Detected changes trigger an immediate sync operation to the server.
-* Server-Side Logging: The server logs metadata (file size, modification time) and uses this to determine if 
-    client-uploaded changes are newer than the stored versions.
+Client-Side Monitoring: The sync_helper.py script monitors the local directory for file changes and triggers synchronization 
+with the server.
 
-Offline Handling
-* Local Cache of Changes: When a client is offline, changes are cached locally. Upon reconnection, the client synchronizes by 
-    comparing timestamps with the server.
-* Event-Based Update Retrieval: After reconnecting, the client retrieves all missed events from the server to 
-    ensure the Dropbox-like folder remains up-to-date.
 
 Conflict Resolution
-* “Last-Write-Wins”: In cases where the same file is modified on multiple clients while offline, the server accepts 
-    the file with the latest timestamp.
-
+“Last-Write-Wins”: In cases where the same file is modified on multiple clients while offline, the server accepts the file 
+with the latest timestamp.
 Security Considerations
-* User Authentication: Clients authenticate via username and password. Only authenticated users can access their 
-    respective files on the server.
-* Encrypted Communication: SSL/TLS encryption prevents eavesdropping on file transfers.
-* Ownership Validation: The server enforces ownership checks on download and delete commands to prevent 
-    unauthorized access.
-* Non-Standard Libraries Used
-* IO::Socket::SSL: Ensures secure, encrypted client-server communication.
-* File::ChangeNotify: Monitors local directories for file changes, supporting the synchronization functionality.
 
+User Authentication: Clients authenticate via username and password. Only authenticated users can access their respective 
+files on the server.
+
+Encrypted Communication: SSL/TLS encryption prevents eavesdropping on file transfers.
+
+Ownership Validation: The server enforces ownership checks on download and delete commands to prevent unauthorized access.
+Non-Standard Libraries Used
+
+IO::Socket::SSL: Ensures secure, encrypted client-server communication.
+
+sync_helper.py: Python script for syncing files and notifying users of operations (upload, download, delete).
 Error Handling
-* Login and Authentication: Returns an error if credentials are invalid or if the user attempts operations without 
-    authentication.
-* File Operations: If a file is not found or the user lacks permission, an error message is returned to the client.
-* Network Issues: The client handles network interruptions by retrying operations after reconnecting. Errors are 
-    logged for troubleshooting.
+
+Login and Authentication: Returns an error if credentials are invalid or if the user attempts operations without 
+authentication.
+
+File Operations: If a file is not found or the user lacks permission, an error message is returned to the client.
+
+Network Issues: The client handles network interruptions by retrying operations after reconnecting. Errors are logged 
+for troubleshooting.
+
+SHARE command: Allows a user to share a file with another user. The file remains encrypted on the server, but the sharing 
+operation updates the ownership metadata to include the new recipient(s). The recipient user(s) are then notified and can 
+download the shared file if they have access to it.

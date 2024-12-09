@@ -12,7 +12,7 @@ CREDENTIALS_FILE = "users.txt"  # Configuration file with usernames and hashed p
 
 def start_sync_helper(port):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    server_socket.bind(('127.0.0.1', port))
+    server_socket.bind(('stu.cs.jmu.edu', port))
     server_socket.listen(5)
     print(f"Sync helper listening on port {port}...")
 
@@ -141,5 +141,5 @@ def monitor_folder():
         previous_snapshot = current_snapshot
 
 if __name__ == "__main__":
-    SYNC_HELPER_PORT = 9000
+    SYNC_HELPER_PORT = 5001
     start_sync_helper(SYNC_HELPER_PORT)
