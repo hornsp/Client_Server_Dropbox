@@ -6,6 +6,7 @@ use File::Basename qw(basename);
 use IO::Socket::SSL;
 use Config;
 use threads;
+use Data::Dumper;
 
 my $ownership_file = 'file_owners.txt';
 my $users_file = 'users.txt';
@@ -68,8 +69,11 @@ sub handle_client {
             my $filename = $1;
             handle_delete($client, $username, $filename);
         }
+        elsif ($command =~ /^SHARE\s+(\S+)\s+(.+)$/) {
+            my ($shared_with_username, $filename) = ($1, $2);
+            handle_share($client, $shared_with_username, $filename);
+        }
     }
-    
     close $client;
 }
 
@@ -105,65 +109,79 @@ sub handle_upload {
     my ($client_socket, $username, $filepath) = @_;
     
     my $storage_dir = 'uploads';
-    mkdir $storage_dir unless -d $storage_dir;  # Ensure uploads directory exists
+    mkdir $storage_dir unless -d $storage_dir;
 
     my $file_name = basename($filepath);
     my $target_path = "$storage_dir/$file_name";
 
-    print $client_socket "READY_TO_RECEIVE\n";  # Notify the client
+    print $client_socket "READY_TO_RECEIVE\n";
 
     open my $file, '>:raw', $target_path or do {
         print $client_socket "ERROR: Unable to open file $target_path for writing.\n";
-        return;  # Skip further processing if file cannot be opened
+        return;
     };
 
-    # Receive and write file data
     while (my $buffer = <$client_socket>) {
-        last if $buffer =~ /EOF/;  # Stop on end-of-file marker
+        last if $buffer =~ /EOF/;
         print $file $buffer;
     }
     close $file;
 
-    # Lock the ownership file to prevent race conditions
+    # Lock the file and update ownership
     flock_file($ownership_file);
-
-    # Log ownership of the uploaded file
-    $file_owners{$file_name} = $username;
+    $file_owners{$file_name} = [$username];
     save_file_ownership();
-
-    # Unlock after operation
     unlock_file($ownership_file);
 
     print $client_socket "UPLOAD SUCCESS\n";
     notify_sync_helper("UPLOAD", $file_name, $username);
 }
 
+sub handle_share {
+    my ($client, $new_owner, $filename) = @_;
+
+    load_file_ownership();
+    $file_owners{$filename} //= [];  # Ensure an array reference exists
+    push @{$file_owners{$filename}}, $new_owner
+        unless grep { $_ eq $new_owner } @{$file_owners{$filename}};
+    save_file_ownership();
+
+    print $client "SHARE SUCCESS\n";
+    notify_sync_helper("SHARE", $filename, $new_owner);
+}
+
 # Handle file download
 sub handle_download {
-    my ($client_socket, $username, $filepath) = @_;
-    my $filename = basename($filepath);
+    my ($client_socket, $username, $filename) = @_;
     my $full_path = "uploads/$filename";
 
     load_file_ownership();
 
-    if (-e $full_path && $file_owners{$filename} && $file_owners{$filename} eq $username) {
-        print $client_socket "DOWNLOAD SUCCESS\n";
-        open my $file, '<:raw', $full_path or do {
-            print $client_socket "ERROR: Could not open file for reading\n";
-            return;
-        };
-        while (my $bytes = read($file, my $buffer, 1024)) {
-            print $client_socket $buffer;
-        }
-        close $file;
-        print $client_socket "EOF\n";
+    # Check file existence and permissions
+    if (-e $full_path) {
+        if (grep { $_ eq $username } @{$file_owners{$filename} || []}) {
+            print $client_socket "DOWNLOAD SUCCESS\n";
 
-        print "File '$filename' sent to client.\n";
-        notify_sync_helper("DOWNLOAD", $filename, $username);
-    } elsif (!-e $full_path) {
-        print $client_socket "ERROR: File not found\n";
+            # Send the file content to the client
+            open my $file, '<:raw', $full_path or do {
+                print $client_socket "ERROR: Could not open file for reading\n";
+                return;
+            };
+            while (my $bytes = read($file, my $buffer, 1024)) {
+                print $client_socket $buffer;
+            }
+            close $file;
+            print $client_socket "EOF\n";
+
+            # Notify the sync helper
+            notify_sync_helper("DOWNLOAD", $filename, $username);
+        } else {
+            print $client_socket "ERROR: Permission denied\n";
+            print "DEBUG: User '$username' does not have permission for file '$filename'.\n";
+        }
     } else {
-        print $client_socket "ERROR: Permission denied\n";
+        print $client_socket "ERROR: File not found\n";
+        print "DEBUG: File '$filename' does not exist in the 'uploads' directory.\n";
     }
 }
 
@@ -174,53 +192,46 @@ sub handle_delete {
 
     load_file_ownership();
 
-    if (-e $file_path && $file_owners{$filename} eq $username) {
-        unlink $file_path or do {
-            print $client_socket "ERROR: Could not delete file '$filename'.\n";
-            return;
-        };
-
-        delete $file_owners{$filename};
+    if (-e $file_path && grep { $_ eq $username } @{$file_owners{$filename} || []}) {
+        @{$file_owners{$filename}} = grep { $_ ne $username } @{$file_owners{$filename}};
+        if (!@{$file_owners{$filename}}) {
+            unlink $file_path or do {
+                print $client_socket "ERROR: Could not delete file '$filename'.\n";
+                return;
+            };
+        }
         save_file_ownership();
-
-        print $client_socket "DELETE SUCCESS: File '$filename' has been deleted.\n";
+        print $client_socket "DELETE SUCCESS\n";
         notify_sync_helper("DELETE", $filename, $username);
     } else {
-        print $client_socket "ERROR: File not found or permission denied.\n";
+        print $client_socket "ERROR: File not found or permission denied\n";
     }
 }
 
 # Load file ownership data
 sub load_file_ownership {
-    # Lock the ownership file to prevent race conditions
-    flock_file($ownership_file);
+    %file_owners = ();
+    return unless -e $ownership_file;
 
-    %file_owners = (); # Clear existing data to avoid stale entries
-    if (-e $ownership_file) {
-        open my $fh, '<', $ownership_file or die "Could not open ownership file: $!";
-        while (<$fh>) {
-            chomp;
-            my ($filename, $owner) = split /:/;
-            $file_owners{$filename} = $owner;
-        }
-        close $fh;
+    open my $fh, '<', $ownership_file or die "Could not open $ownership_file: $!";
+    while (<$fh>) {
+        chomp;
+        my ($filename, $owner) = split /:/;
+        $file_owners{$filename} //= [];
+        push @{$file_owners{$filename}}, $owner;
     }
-
-    unlock_file($ownership_file);
+    close $fh;
 }
 
 # Save file ownership data
 sub save_file_ownership {
-    # Lock the ownership file to prevent race conditions
-    flock_file($ownership_file);
-
-    open my $fh, '>', $ownership_file or die "Could not open ownership file\n";
-    foreach my $filename (keys %file_owners) {
-        print $fh "$filename:$file_owners{$filename}\n";
+    open my $fh, '>', $ownership_file or die "Cannot open $ownership_file: $!";
+    foreach my $file (keys %file_owners) {
+        foreach my $owner (@{$file_owners{$file}}) {
+            print $fh "$file:$owner\n";
+        }
     }
     close $fh;
-
-    unlock_file($ownership_file);
 }
 
 # Lock a file using flock

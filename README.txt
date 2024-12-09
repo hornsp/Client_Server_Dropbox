@@ -15,7 +15,7 @@ How to Use:
 * Ensure the server is running and users are authenticated.
 * Start the sync helper by running:
     * python sync_helper.py
-* Requires Python 3. Ensure the necessary Python modules (e.g., watchdog) are installed.
+* Requires Python 3. 
 
 Functionality:
 The sync helper detects changes made to files in the shared user directory across multiple clients and outputs a 
@@ -23,6 +23,7 @@ notification in the terminal for each change:
 * File added: Triggered when a file is uploaded.
 * File deleted: Triggered when a file is deleted.
 * File downloaded: Triggered when a file is downloaded.
+* File shared: Triggered when a file is shared. 
 By running sync_helper.py alongside the client and server, users can observe all file activity in real-time, enabling better monitoring and collaboration across multiple devices.
 
 Client:
@@ -32,6 +33,7 @@ Client:
     * Upload a file: Enter a command: UPLOAD path\to\file
     * Download a File: Enter a command: DOWNLOAD <filename>
     * Delete a File: Enter a command: DELETE <filename>
+    * Sharing a file: Enter a command: SHARE <recipient username> <filename>
     * Monitoring for Changes: I a user has multiple clients, each client will monitor for changes to the users' files
 
 Authentication:
@@ -50,3 +52,6 @@ Error Handling:
   experience.
 
 Bugs:
+I was unable to implement file encryption using a key. The only way I could think to implement this functionality would be to use cryptographic libraries.
+These libraries required me to download them which was not possible on the student server. I also had to remove the code for these 
+processes from my project so that I could run the program. I ran out of time to find a solution. 

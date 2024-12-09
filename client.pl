@@ -72,11 +72,11 @@ elsif ($command eq 'LOGIN') {
             }
 
             # Handle the SHARE command
-            elsif ($user_command =~ /^SHARE\s+(\S+)\s+(\S+)\s+(.+)/i) {
-                my ($command, $owner, $recipient, $filename) = split(' ', $user_command, 4);
-                share_file($socket, $owner, $recipient, $filename);
+            elsif ($user_command =~ /^SHARE\s+(\S+)\s+(.+)/i) {
+                my ($command, $recipient, $filename) = split(' ', $user_command, 4);
+                share_file($socket, $recipient, $filename);
                 next;
-            }
+            }            
 
             # Send other commands to the server
             print $socket "$user_command\n";
@@ -155,14 +155,11 @@ sub delete_file {
     print "Server response: $response";
 }
 
-# Share file command
 sub share_file {
-    my ($socket, $owner, $recipient, $filename) = @_;
-    
-    # Send the SHARE command to the server
-    print $socket "SHARE $owner $recipient $filename\n";
-    
-    # Read and print the server's response
+    my ($socket, $recipient, $filename) = @_;
+
+    print $socket "SHARE $recipient $filename\n";
+
     my $response = <$socket>;
-    print "Server Response: $response\n";
+    print $response;
 }

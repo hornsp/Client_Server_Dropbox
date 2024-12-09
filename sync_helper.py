@@ -36,6 +36,8 @@ def handle_notification(message):
             print(f"File downloaded: {filename} by {username}")
         elif action == "DELETE":
             print(f"File deleted: {filename} by {username}")
+        elif action == "SHARE":
+            print(f"File shared: {filename} to {username}")
         else:
             print(f"Unknown action: {message}")
     else:
